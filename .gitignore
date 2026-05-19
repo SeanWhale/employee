@@ -3,13 +3,6 @@ venv/
 env/
 .env
 
-# Data definition & Original data source
-data/
-test_db-master/
-*.dump
-*.sql
-*.csv
-
 # Python Cache
 __pycache__/
 *.py[cod]
