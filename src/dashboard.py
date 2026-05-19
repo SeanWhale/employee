@@ -40,7 +40,7 @@ fig_map = plot_nyc_taxi_map(external_weather_df)
 benchmark_df = build_external_benchmark(master)
 fig_benchmark = plot_benchmark_comparison(benchmark_df)
 
-anova_p = dependency_result['anova_salary_by_department']['p_value'] if dependency_result['anova_salary_by_department'] else None
+anova_p = dependency_result.get('anova_salary_by_department', {}).get('p_value') if dependency_result.get('anova_salary_by_department') else None
 anova_text = f"{anova_p:.3g}" if anova_p is not None else "NA"
 dependency_summary_text = (
     f"偏相关(薪资~工龄|年龄): {dependency_result['partial_correlation_salary_tenure_given_age']['coefficient']:.3f}, "

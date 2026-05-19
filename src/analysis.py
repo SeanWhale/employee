@@ -8,6 +8,7 @@ from scipy import stats
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+MIN_DEPT_SIZE_FOR_ANOVA = 5
 
 def build_master_dataset(cleaned_data):
     """
@@ -86,7 +87,11 @@ def dependency_analysis(df_master):
     y_res = y - np.polyval(np.polyfit(z, y, 1), z)
     partial_corr = stats.spearmanr(x_res, y_res, nan_policy='omit')
 
-    dept_groups = [g['salary'].values for _, g in valid.groupby('dept_name') if len(g) > 5]
+    dept_groups = [
+        g['salary'].values
+        for _, g in valid.groupby('dept_name')
+        if len(g) > MIN_DEPT_SIZE_FOR_ANOVA
+    ]
     anova = stats.f_oneway(*dept_groups) if len(dept_groups) > 1 else None
     tenure_salary = stats.spearmanr(valid['tenure_years'], valid['salary'], nan_policy='omit')
 

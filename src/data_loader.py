@@ -16,12 +16,10 @@ def parse_sql_dump(file_name, table_name):
 
     file_path = DATA_DIR / file_name
     file_stream = None
-    should_close_stream = False
     zip_handle = None
 
     if file_path.exists():
         file_stream = open(file_path, 'r', encoding='utf-8')
-        should_close_stream = True
     elif DATA_ZIP_PATH.exists():
         zip_member = f"{ZIP_ROOT_DIR}/{file_name}"
         zip_handle = zipfile.ZipFile(DATA_ZIP_PATH, 'r')
@@ -45,15 +43,19 @@ def parse_sql_dump(file_name, table_name):
             normalized = normalized[:-1]
         if not normalized:
             return
-        parsed = next(
-            csv.reader(
-                [normalized],
-                delimiter=',',
-                quotechar="'",
-                escapechar='\\',
-                skipinitialspace=True,
+        try:
+            parsed = next(
+                csv.reader(
+                    [normalized],
+                    delimiter=',',
+                    quotechar="'",
+                    escapechar='\\',
+                    skipinitialspace=True,
+                )
             )
-        )
+        except StopIteration as exc:
+            preview = f"{segment[:120]}{'...' if len(segment) > 120 else ''}"
+            raise ValueError(f"Failed to parse SQL values segment in {file_name}: {preview}") from exc
         rows.append(parsed)
 
     try:
@@ -74,10 +76,9 @@ def parse_sql_dump(file_name, table_name):
             for part in line.split('),('):
                 parse_value_segment(part)
     finally:
-        if should_close_stream and file_stream is not None:
+        if file_stream is not None:
             file_stream.close()
         if zip_handle is not None:
-            file_stream.close()
             zip_handle.close()
 
     return pd.DataFrame(rows, columns=columns)

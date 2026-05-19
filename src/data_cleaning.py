@@ -4,6 +4,10 @@ import logging
 from src.config import CURRENT_SENTINEL_DATE
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+# 数据质量阈值：用于过滤明显异常的入职年龄样本（非劳动法规阈值）
+MIN_PLAUSIBLE_HIRING_AGE = 12
+MAX_PLAUSIBLE_HIRING_AGE = 80
+DEFAULT_MEDIAN_HIRE_AGE = 28.0
 
 def replace_null_strings(df):
     """
@@ -57,9 +61,11 @@ def fix_invalid_temporal_ranges(data):
     emp_df = data.get('employees')
     if emp_df is not None and {'birth_date', 'hire_date'}.issubset(emp_df.columns):
         age_years = (emp_df['hire_date'] - emp_df['birth_date']).dt.days / 365.25
-        median_age_at_hire = age_years[(age_years > 12) & (age_years < 80)].median()
+        median_age_at_hire = age_years[
+            (age_years > MIN_PLAUSIBLE_HIRING_AGE) & (age_years < MAX_PLAUSIBLE_HIRING_AGE)
+        ].median()
         if pd.isna(median_age_at_hire):
-            median_age_at_hire = 28.0
+            median_age_at_hire = DEFAULT_MEDIAN_HIRE_AGE
         bad_age_mask = (
             emp_df['birth_date'].notna()
             & emp_df['hire_date'].notna()

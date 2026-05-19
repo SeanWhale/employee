@@ -21,7 +21,7 @@ def train_and_predict(monthly_salary_df, test_periods=24):
     """
     logging.info("Training time-based salary forecasting model...")
     if len(monthly_salary_df) <= test_periods + 2:
-        raise ValueError("历史月份不足，无法进行训练/验证切分。")
+        raise ValueError("Insufficient historical months for train/test split.")
 
     df = monthly_salary_df.copy().reset_index(drop=True)
     df['t'] = np.arange(len(df))
@@ -38,7 +38,13 @@ def train_and_predict(monthly_salary_df, test_periods=24):
     validation['error'] = validation['salary'] - validation['predicted_salary']
     mae = float(mean_absolute_error(validation['salary'], validation['predicted_salary']))
     rmse = float(np.sqrt(mean_squared_error(validation['salary'], validation['predicted_salary'])))
-    mape = float((np.abs(validation['error']) / validation['salary'].clip(lower=1)).mean())
+    positive_actual_mask = validation['salary'] > 0
+    if positive_actual_mask.any():
+        mape = float(
+            (np.abs(validation.loc[positive_actual_mask, 'error']) / validation.loc[positive_actual_mask, 'salary']).mean()
+        )
+    else:
+        mape = float('nan')
 
     metrics = {'mae': mae, 'rmse': rmse, 'mape': mape}
     logging.info(f"Forecast validation -> MAE: {mae:.2f}, RMSE: {rmse:.2f}, MAPE: {mape:.4f}")

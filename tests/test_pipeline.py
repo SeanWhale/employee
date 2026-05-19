@@ -37,11 +37,11 @@ def _build_raw_tables():
     )
 
     salary_rows = []
-    for i, emp in enumerate(range(1, 9), start=1):
+    for i, emp_num in enumerate(range(1, 9), start=1):
         for month in pd.date_range('2001-01-01', periods=36, freq='MS'):
             salary_rows.append(
                 {
-                    'emp_no': str(emp),
+                    'emp_no': str(emp_num),
                     'salary': str(35000 + i * 1000 + (month.year - 2001) * 900 + (month.month * 10)),
                     'from_date': month.strftime('%Y-%m-%d'),
                     'to_date': '9999-01-01',
