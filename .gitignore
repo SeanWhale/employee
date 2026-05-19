@@ -2,7 +2,7 @@
 venv/
 env/
 .env
-
+*.dump
 # Python Cache
 __pycache__/
 *.py[cod]
