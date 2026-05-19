@@ -1,0 +1,4 @@
+Employees（大型企业 HR，百万级数据）
+场景：企业人力资源（员工、部门、薪资、职称、部门任职历史）表数量：6 张（employees, departments, dept_emp, salaries, titles, dept_manager）关系：时态数据（历史薪资 / 任职、生效 / 失效日期）、多对多（员工 - 部门）规模：30 万员工、280 万薪资记录（适合性能测试、大数据量查询）下载：
+GitHub：https://github.com/datacharmer/test_db
+直接下载：https://github.com/datacharmer/test_db/archive/refs/heads/master.zip
