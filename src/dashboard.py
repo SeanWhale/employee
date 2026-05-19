@@ -5,9 +5,17 @@ import pandas as pd
 # 导入我们的处理逻辑
 from src.data_loader import load_all_data
 from src.data_cleaning import clean_data
-from src.analysis import build_master_dataset, analyze_correlation, perform_clustering
-from src.prediction import prepare_features, train_and_predict, plot_prediction_difference
-from src.visualization import plot_correlation_heatmap, plot_clustering_scatter, plot_salary_distribution, plot_dept_salary_boxplot
+from src.analysis import build_master_dataset, dependency_analysis, perform_clustering
+from src.prediction import build_monthly_salary_series, train_and_predict, plot_prediction_difference
+from src.visualization import (
+    plot_correlation_heatmap,
+    plot_clustering_scatter,
+    plot_salary_distribution,
+    plot_dept_salary_boxplot,
+    plot_tenure_attrition,
+    plot_cluster_profile,
+)
+from src.external_data import get_simulated_noaa_taxi_data, plot_nyc_taxi_map, build_external_benchmark, plot_benchmark_comparison
 
 print("Initializing Data for Dashboard... (This may take a minute due to large dataset)")
 raw = load_all_data()
@@ -15,13 +23,31 @@ cleaned = clean_data(raw)
 master = build_master_dataset(cleaned)
 
 # 进行聚类与相关性计算
-master, _, _ = perform_clustering(master)
-corr_matrix = analyze_correlation(master)
+master, clustering_result, _ = perform_clustering(master)
+dependency_result = dependency_analysis(master)
+corr_matrix = dependency_result['correlation_matrix']
+cluster_profile = clustering_result['cluster_profile']
 
 # 预先训练模型获取预测数据以供展示
-X, y, df_source = prepare_features(master)
-model, X_test, y_test, y_pred = train_and_predict(X, y)
-fig_pred = plot_prediction_difference(y_test, y_pred)
+monthly_salary = build_monthly_salary_series(cleaned['salaries'])
+model, validation_df, forecast_metrics = train_and_predict(monthly_salary)
+fig_pred = plot_prediction_difference(validation_df, forecast_metrics)
+fig_attrition = plot_tenure_attrition(master)
+fig_cluster_profile = plot_cluster_profile(cluster_profile)
+
+external_weather_df = get_simulated_noaa_taxi_data()
+fig_map = plot_nyc_taxi_map(external_weather_df)
+benchmark_df = build_external_benchmark(master)
+fig_benchmark = plot_benchmark_comparison(benchmark_df)
+
+anova_p = dependency_result['anova_salary_by_department']['p_value'] if dependency_result['anova_salary_by_department'] else None
+anova_text = f"{anova_p:.3g}" if anova_p is not None else "NA"
+dependency_summary_text = (
+    f"偏相关(薪资~工龄|年龄): {dependency_result['partial_correlation_salary_tenure_given_age']['coefficient']:.3f}, "
+    f"p={dependency_result['partial_correlation_salary_tenure_given_age']['p_value']:.3g}; "
+    f"ANOVA p={anova_text}; "
+    f"聚类模型对比: {clustering_result['scores']}"
+)
 
 def get_dynamic_time_figure(cleaned_data):
     """
@@ -100,11 +126,26 @@ app.layout = html.Div(style={'fontFamily': 'Arial, sans-serif', 'padding': '20px
         html.Div(dcc.Graph(figure=plot_correlation_heatmap(corr_matrix)), style={'width': '49%', 'backgroundColor': 'white', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'padding': '10px'}),
         html.Div(dcc.Graph(id='scatter-plot'), style={'width': '49%', 'backgroundColor': 'white', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'padding': '10px'})
     ]),
-    
+
+    html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'marginBottom': '20px'}, children=[
+        html.Div(dcc.Graph(figure=fig_attrition), style={'width': '49%', 'backgroundColor': 'white', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'padding': '10px'}),
+        html.Div(dcc.Graph(figure=fig_cluster_profile), style={'width': '49%', 'backgroundColor': 'white', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'padding': '10px'})
+    ]),
+
     # 预测区 (要求4)
     html.Div([
         dcc.Graph(figure=fig_pred)
-    ], style={'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'backgroundColor': 'white', 'padding': '10px'})
+    ], style={'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'backgroundColor': 'white', 'padding': '10px', 'marginBottom': '20px'}),
+
+    html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'marginBottom': '20px'}, children=[
+        html.Div(dcc.Graph(figure=fig_benchmark), style={'width': '49%', 'backgroundColor': 'white', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'padding': '10px'}),
+        html.Div(dcc.Graph(figure=fig_map), style={'width': '49%', 'backgroundColor': 'white', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)', 'padding': '10px'})
+    ]),
+
+    html.Div(style={'backgroundColor': 'white', 'padding': '10px', 'boxShadow': '0 4px 8px 0 rgba(0,0,0,0.2)'}, children=[
+        html.H4("依赖分析摘要", style={'marginBottom': '10px'}),
+        html.P(dependency_summary_text),
+    ])
 ])
 
 # 回调函数响应交互

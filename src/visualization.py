@@ -64,6 +64,38 @@ def plot_dept_salary_boxplot(df_master):
     fig.update_layout(xaxis={'categoryorder':'median descending'})
     return fig
 
+def plot_tenure_attrition(df_master):
+    """
+    关键变量对关系图：工龄 vs 离职（要求6）
+    """
+    df = df_master[['tenure_years', 'attrition_flag', 'salary']].dropna().copy()
+    df['attrition_label'] = df['attrition_flag'].map({0: '在职', 1: '离职'})
+    fig = px.box(
+        df,
+        x='attrition_label',
+        y='tenure_years',
+        color='attrition_label',
+        points='outliers',
+        title='工龄与离职关系（按离职状态的工龄分布）',
+        labels={'attrition_label': '员工状态', 'tenure_years': '工龄(年)'}
+    )
+    return fig
+
+def plot_cluster_profile(cluster_profile_df):
+    """
+    聚类解释图：展示不同簇在薪资、工龄、年龄上的均值画像。
+    """
+    melted = cluster_profile_df.melt(id_vars='cluster', var_name='metric', value_name='value')
+    fig = px.bar(
+        melted,
+        x='cluster',
+        y='value',
+        color='metric',
+        barmode='group',
+        title='聚类簇画像对比（薪资/工龄/年龄）'
+    )
+    return fig
+
 if __name__ == "__main__":
     from src.data_loader import load_all_data
     from src.data_cleaning import clean_data

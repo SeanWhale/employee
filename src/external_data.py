@@ -91,6 +91,56 @@ def plot_nyc_taxi_map(df):
     
     return fig
 
+def build_external_benchmark(df_master):
+    """
+    构建外部行业基准（示例合成数据）并与内部部门指标对齐。
+    """
+    internal = (
+        df_master.groupby('dept_name')
+        .agg(internal_avg_salary=('salary', 'mean'), internal_attrition=('attrition_flag', 'mean'))
+        .reset_index()
+    )
+    np.random.seed(42)
+    benchmark = internal[['dept_name']].copy()
+    benchmark['benchmark_avg_salary'] = internal['internal_avg_salary'] * np.random.uniform(0.92, 1.08, len(benchmark))
+    benchmark['benchmark_attrition'] = np.clip(
+        internal['internal_attrition'] + np.random.normal(0.0, 0.03, len(benchmark)),
+        0,
+        1,
+    )
+    merged = internal.merge(benchmark, on='dept_name', how='left')
+    merged['salary_gap'] = merged['internal_avg_salary'] - merged['benchmark_avg_salary']
+    merged['attrition_gap'] = merged['internal_attrition'] - merged['benchmark_attrition']
+    return merged
+
+def plot_benchmark_comparison(benchmark_df):
+    """
+    外部基准对比图（薪资与离职率差异）。
+    """
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=benchmark_df['dept_name'],
+        y=benchmark_df['salary_gap'],
+        name='薪资差(内部-外部)',
+        marker_color='steelblue'
+    ))
+    fig.add_trace(go.Scatter(
+        x=benchmark_df['dept_name'],
+        y=benchmark_df['attrition_gap'],
+        name='离职率差(内部-外部)',
+        mode='lines+markers',
+        yaxis='y2',
+        marker=dict(color='crimson')
+    ))
+    fig.update_layout(
+        title='外部行业基准对比（部门薪资与离职率）',
+        xaxis_title='部门',
+        yaxis_title='薪资差额',
+        yaxis2=dict(title='离职率差额', overlaying='y', side='right'),
+        hovermode='x unified',
+    )
+    return fig
+
 if __name__ == "__main__":
     df = get_simulated_noaa_taxi_data()
     fig_corr = plot_weather_taxi_correlation(df)

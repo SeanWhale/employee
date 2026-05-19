@@ -1,38 +1,86 @@
-import os
-import re
+import csv
+import io
 import pandas as pd
-from pathlib import Path
-from src.config import DATA_DIR, SCHEMA
+import zipfile
+
+from src.config import DATA_DIR, DATA_ZIP_PATH, ZIP_ROOT_DIR, SCHEMA
 
 def parse_sql_dump(file_name, table_name):
     """
     解析 MySQL dump 文件并将 VALUES 后面的数据提取为 DataFrame。
+    优先读取 data/ 目录，其次从仓库提供的 test_db 压缩包读取。
     """
-    file_path = DATA_DIR / file_name
-    if not file_path.exists():
-        print(f"File {file_path} not found.")
+    columns = SCHEMA.get(table_name)
+    if not columns:
         return pd.DataFrame()
-        
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
 
-    # 提取 VALUES 后面的内容
-    values_data = content.split("VALUES")[1].strip()
-    if values_data.endswith(';'):
-        values_data = values_data[:-1]
+    file_path = DATA_DIR / file_name
+    file_stream = None
+    should_close_stream = False
+    zip_handle = None
 
-    # 使用正则表达式提取每条记录的元组
-    pattern = re.compile(r"\((.*?)\)", re.DOTALL)
-    matches = pattern.findall(values_data)
-    
-    parsed_data = []
-    for match in matches:
-        # 简单分割，去除单引号和空白
-        row = [val.strip(" '\"") for val in match.split(',')]
-        parsed_data.append(row)
+    if file_path.exists():
+        file_stream = open(file_path, 'r', encoding='utf-8')
+        should_close_stream = True
+    elif DATA_ZIP_PATH.exists():
+        zip_member = f"{ZIP_ROOT_DIR}/{file_name}"
+        zip_handle = zipfile.ZipFile(DATA_ZIP_PATH, 'r')
+        if zip_member not in zip_handle.namelist():
+            print(f"File {file_name} not found in {DATA_ZIP_PATH}.")
+            zip_handle.close()
+            return pd.DataFrame(columns=columns)
+        file_stream = io.TextIOWrapper(zip_handle.open(zip_member, 'r'), encoding='utf-8')
+    else:
+        print(f"File {file_path} not found and zip {DATA_ZIP_PATH} does not exist.")
+        return pd.DataFrame(columns=columns)
 
-    df = pd.DataFrame(parsed_data, columns=SCHEMA.get(table_name))
-    return df
+    rows = []
+    values_started = False
+
+    def parse_value_segment(segment):
+        normalized = segment.strip().rstrip(',;')
+        if normalized.startswith('('):
+            normalized = normalized[1:]
+        if normalized.endswith(')'):
+            normalized = normalized[:-1]
+        if not normalized:
+            return
+        parsed = next(
+            csv.reader(
+                [normalized],
+                delimiter=',',
+                quotechar="'",
+                escapechar='\\',
+                skipinitialspace=True,
+            )
+        )
+        rows.append(parsed)
+
+    try:
+        for line in file_stream:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('INSERT INTO'):
+                if 'VALUES' in line:
+                    values_started = True
+                    value_part = line.split('VALUES', 1)[1].strip()
+                    if value_part:
+                        for part in value_part.split('),('):
+                            parse_value_segment(part)
+                continue
+            if not values_started:
+                continue
+            for part in line.split('),('):
+                parse_value_segment(part)
+    finally:
+        if should_close_stream and file_stream is not None:
+            file_stream.close()
+        if zip_handle is not None:
+            file_stream.close()
+            zip_handle.close()
+
+    return pd.DataFrame(rows, columns=columns)
 
 def load_all_data():
     """

@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+from scipy import stats
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -44,6 +47,11 @@ def build_master_dataset(cleaned_data):
     current_date = pd.Timestamp('2026-05-18') # 假设当前业务计算日期
     df_merged['tenure_years'] = (current_date - df_merged['hire_date']).dt.days / 365.25
     df_merged['age'] = (current_date - df_merged['birth_date']).dt.days / 365.25
+    current_mask = dept_emp_latest['to_date'].isna()
+    active_lookup = dept_emp_latest.assign(is_active=current_mask)[['emp_no', 'is_active']]
+    df_merged = pd.merge(df_merged, active_lookup, on='emp_no', how='left')
+    df_merged['is_active'] = df_merged['is_active'].fillna(False)
+    df_merged['attrition_flag'] = (~df_merged['is_active']).astype(int)
     
     # 清理可能产生的无限值或空值
     df_merged = df_merged.replace([np.inf, -np.inf], np.nan).dropna(subset=['salary', 'tenure_years', 'age'])
@@ -60,26 +68,93 @@ def analyze_correlation(df_master):
     corr_matrix = numeric_df.corr(method='spearman') # 薪资等分布不一定正态，用皮尔斯曼秩相关
     return corr_matrix
 
+def dependency_analysis(df_master):
+    """
+    相依性分析：
+    1) Spearman 相关矩阵
+    2) 偏相关（salary 与 tenure，在 age 控制下）
+    3) 假设检验（部门薪资差异 ANOVA；司龄与薪资 Spearman）
+    """
+    valid = df_master[['salary', 'tenure_years', 'age', 'dept_name']].dropna().copy()
+    corr_matrix = analyze_correlation(valid)
+
+    # 偏相关：残差法（X~Z, Y~Z 后对残差做相关）
+    z = valid['age'].values
+    x = valid['salary'].values
+    y = valid['tenure_years'].values
+    x_res = x - np.polyval(np.polyfit(z, x, 1), z)
+    y_res = y - np.polyval(np.polyfit(z, y, 1), z)
+    partial_corr = stats.spearmanr(x_res, y_res, nan_policy='omit')
+
+    dept_groups = [g['salary'].values for _, g in valid.groupby('dept_name') if len(g) > 5]
+    anova = stats.f_oneway(*dept_groups) if len(dept_groups) > 1 else None
+    tenure_salary = stats.spearmanr(valid['tenure_years'], valid['salary'], nan_policy='omit')
+
+    return {
+        'correlation_matrix': corr_matrix,
+        'partial_correlation_salary_tenure_given_age': {
+            'coefficient': float(partial_corr.correlation),
+            'p_value': float(partial_corr.pvalue),
+        },
+        'anova_salary_by_department': (
+            None if anova is None else {'f_stat': float(anova.statistic), 'p_value': float(anova.pvalue)}
+        ),
+        'spearman_salary_vs_tenure': {
+            'coefficient': float(tenure_salary.correlation),
+            'p_value': float(tenure_salary.pvalue),
+        },
+    }
+
+def compare_clustering_models(df_master, n_clusters=4, sample_size=20000):
+    """
+    比较两类聚类模型：KMeans 与 Agglomerative，输出轮廓系数与簇画像。
+    """
+    features = df_master[['salary', 'tenure_years', 'age']].dropna().copy()
+    sample = features.sample(n=min(sample_size, len(features)), random_state=42) if len(features) > sample_size else features
+    scaler = StandardScaler()
+    x_scaled_sample = scaler.fit_transform(sample)
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    kmeans_labels_sample = kmeans.fit_predict(x_scaled_sample)
+    kmeans_score = float(silhouette_score(x_scaled_sample, kmeans_labels_sample))
+
+    agglomerative = AgglomerativeClustering(n_clusters=n_clusters)
+    agg_labels_sample = agglomerative.fit_predict(x_scaled_sample)
+    agg_score = float(silhouette_score(x_scaled_sample, agg_labels_sample))
+
+    preferred = 'kmeans' if kmeans_score >= agg_score else 'agglomerative'
+    full_scaled = scaler.transform(features)
+    full_kmeans_labels = kmeans.predict(full_scaled)
+    label_series = pd.Series(full_kmeans_labels, index=features.index)
+
+    profile = (
+        features.assign(cluster=label_series.astype(str))
+        .groupby('cluster')[['salary', 'tenure_years', 'age']]
+        .mean()
+        .round(2)
+        .reset_index()
+    )
+
+    return {
+        'scores': {'kmeans': kmeans_score, 'agglomerative': agg_score},
+        'preferred_model': preferred,
+        'label_source': 'kmeans',
+        'labels': label_series.astype(str),
+        'cluster_profile': profile,
+    }
+
 def perform_clustering(df_master, n_clusters=4):
     """
     利用 K-Means 对员工进行聚类画像分析（根据薪资与司龄）。
     """
     logging.info("Performing K-Means Clustering on Salary & Tenure...")
-    # 提取特征
-    X = df_master[['salary', 'tenure_years']].copy()
-    
-    # 数据标准化，聚类前非常必要
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    # K-Means 聚类
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    df_master['cluster_label'] = kmeans.fit_predict(X_scaled)
+    result = compare_clustering_models(df_master, n_clusters=n_clusters)
+    df_master['cluster_label'] = result['labels']
     # 将 cluster label 转字符串方便绘图处理类别
     df_master['cluster_label'] = df_master['cluster_label'].astype(str)
     
     logging.info("Clustering finished.")
-    return df_master, kmeans, scaler
+    return df_master, result, None
 
 if __name__ == "__main__":
     from src.data_loader import load_all_data
